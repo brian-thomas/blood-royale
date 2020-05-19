@@ -19,8 +19,8 @@ my @attributes = qw (
                       charisma
                       age
                       father
-                      mother
                       married
+                      generation
                       alive
                     );
 

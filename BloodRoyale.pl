@@ -1,12 +1,13 @@
-#!/usr/local/bin/perl -w 
+#!/usr/bin/perl -w 
 
 use strict;
 use vars qw ($VERSION);
 
 # the version of this program/package
-$VERSION = "0.21";
+$VERSION = "0.22";
 
 use Tk;
+use Tk::JPEG; # temporary, until we can get yr numbers in as xpm inserts 
 use Tk::NoteBook;
 use Tk::TreeGraph;
 use Character;
@@ -20,6 +21,7 @@ my $Year_Advance = 5;
 my $Start_Year = 1300;
 my $Start_King_Age = 25;
 my $Start_Queen_Age = 20;
+my $Start_First_Child_Age = 5;
 
 # Runtime options
 my $DISPLAY_SIZE;
@@ -28,11 +30,11 @@ my $DEBUG = 0;
 # defs
 my $TOOLNAME = 'Blood Royale Game Aid';
 my %DYNASTY = (
-                 'England' => {'characters' => [], 'events' => []}, 
-                 'Germany' => {'characters' => [], 'events' => []}, 
-                 'Italy' => {'characters' => [], 'events' => []}, 
-                 'France' => {'characters' => [], 'events' => []}, 
-                 'Spain' => {'characters' => [], 'events' => []}, 
+                 'England' => {'characters' => {}, 'events' => []}, 
+                 'Germany' => {'characters' => {}, 'events' => []}, 
+                 'Italy' => {'characters' => {}, 'events' => []}, 
+                 'France' => {'characters' => {}, 'events' => []}, 
+                 'Spain' => {'characters' => {}, 'events' => []}, 
               );
 
 # various display sizes for our tool
@@ -43,12 +45,17 @@ my $LARGE_SIZE  = '1600x1200';
 
 # color defs
 my %Color = ( 'yellow' => "#993",
+              'liteyellow' => "#998",
               'pink' => "#e88",
-              'green' => "#6c3",
+              'ash' => "#999999",
+              'gold' => "goldenrod",
+              'green' => "#6a3",
               'darkgreen' => "#283",
               'liteblue' => "#5588ee",
               'blue' => "#117799",
+              'blue2' => "#1188aa",
               'red' => "#c12",
+              'litered' => "#a23",
               'grey' => "#bbb",
               'darkgrey' => "#555",
               'offwhite' => "#eee",
@@ -81,10 +88,27 @@ my %Big_Bold_Font = (
            );
 
 
+my %FgColor = ( 'Italy' => $Color{black},
+                'Spain' => $Color{black},
+                'England' => $Color{black},
+                'Germany' => $Color{red},
+                'France' => $Color{black},
+                'Events' => $Color{black},
+              );
+
+my %BgColor = ( 'Italy' => $Color{gold},
+                'Spain' => $Color{litered},
+                'England' => $Color{green},
+                'Germany' => $Color{ash},
+                'France' => $Color{blue2},
+                'Events' => $Color{offwhite},
+              );
+
+
 # program configs
 my $baseColor = $Color{'blue'};
 my $textFgColor = $Color{'black'};
-my $textBgColor = $baseColor;
+my $textBgColor = $Color{'blue'}; 
 
 # P R O G R A M   B E G I N S
 
@@ -112,18 +136,46 @@ sub init_game {
 
 }
 
+sub find_dynasty_leader {
+  my ($dynasty) = @_;
+
+  my $generation = 1;
+  while (exists $DYNASTY{$dynasty}->{'characters'}->{$generation})
+  {
+
+     foreach my $char (@{$DYNASTY{$dynasty}->{'characters'}->{$generation}})
+     {
+
+        next unless $char->alive;
+
+        # NOT strictly right, will pass over queen-mothers
+        next if ($char->sex eq 'female' && $char->married);
+
+        return $char;
+     }
+     $generation++; 
+  }
+
+}
+
+sub update_events_display {
+  my ($frame) = @_;
+  
+  $WIDGET{'notebook'}->configure(-bg => $BgColor{'Events'});
+  $frame->configure(-bg => $BgColor{'Events'});
+
+}
+
 sub update_display {
 
 
    &update_year_display();
 #   &update_events_display();
 
-   foreach my $dynasty (keys %DYNASTY) { 
-      for (&get_dynasty_character_list($dynasty)) 
-      { 
-         # insert in tree graph
-         &update_dynasty_display($dynasty);
-      }
+   foreach my $dynasty (keys %DYNASTY) 
+   { 
+      # insert in tree graph
+      &update_dynasty_display($dynasty);
    }
 }
 
@@ -143,46 +195,103 @@ sub clear_treegraph_display {
    }
 }
 
+sub print_char_info_box
+{
+  my ($tg, $char, $king, $screen_pos) = @_;
+
+  my $name = $char->name;
+  my $age  = $char->age;
+  my $ST = $char->strength;
+  my $HT = $char->constitution;
+  my $AP = $char->charisma;
+
+  my $line = "$name";
+  $line .= " (KING)" if $char == $king; 
+
+  my $ref = ["Name:$line", "Age:$age", "ST:$ST HT:$HT AP:$AP"];
+
+  unless ($char->married)
+  {
+     push @$ref, "Sex:".$char->sex;
+  }
+
+  $tg -> addNode
+  (
+     nodeId => $name,
+     after => $screen_pos,
+     text => $ref
+  );
+
+}
+
 sub update_dynasty_display {
    my ($dynasty) = @_;
 
    my $frame = $dynasty . '_text';
 
+   $WIDGET{'notebook'}->configure(-bg => $BgColor{$dynasty});
+
    return unless defined $WIDGET{$frame};
 
    &clear_treegraph_display($frame);
 
-   my $ref = [qw/some really_silly text/];
+   my $king = &find_dynasty_leader ($dynasty);
+
    my $tg = $WIDGET{$frame}; 
+   my @screen_pos = (20,0);
+   my $generation = 1;
+   while (exists $DYNASTY{$dynasty}->{'characters'}->{$generation}) 
+   {
 
-  my @where = (20,0);
-  $tg -> addNode 
-  (
-    nodeId => 'King', 
-    after => \@where,
-    text => $ref
-  ) ;
+     foreach my $char (@{$DYNASTY{$dynasty}->{'characters'}->{$generation}})
+     {
 
-  @where = (150,0);
-  $tg -> addNode
-  (
-    nodeId => 'Queen',
-    after => \@where,
-    text => $ref
-  ) ;
+        next unless $char->alive;
 
-  $tg->createLine(120, 130, 150, 130, -fill => 'white', );
-  $tg->createLine(120, 135, 150, 135, -fill => 'white', );
+        my $married = $char->married;
+        next if $married && $char->sex eq 'female';
+
+        # draw the character
+        &print_char_info_box($tg, $char, $king, \@screen_pos);
+
+        # draw the (female) spose
+        if ($married && $married->alive) 
+        {
+
+           $screen_pos[0] += 120;
+
+           my $start_line = $screen_pos[0] - 20;
+           my $end_line = $start_line+10;
+           $tg->createLine($start_line, $end_line, $start_line+20, $end_line, -fill => 'white', );
+           $tg->createLine($start_line, $end_line+5, $start_line+20, $end_line+5, -fill => 'white', );
+
+           &print_char_info_box($tg, $married, $king, \@screen_pos);
+        }
+
+        my $father = $char->father;
+        if ($father && $father->alive) 
+        {
+        #   $tg->addDirectArrow( to => $char->name, from => $father->name,);
+        }
+
+        # bump up screen position
+        $screen_pos[0] += 120;
+     }
+
+     $screen_pos[0] = 20;
+     $screen_pos[1] += 200;
+     $generation++;
+   }
 
 
  # OR add a node after another one, in this case the widget 
  # will draw the arrow
- $tg->addNode
-  (
-   after =>'King',
-   nodeId => 'Child1',
-   text => ['some','text']
-  );
+# $tg->addNode
+# (
+#    after =>'King',
+#    nodeId => 'Child1',
+#    text => ['some','text']
+#  );
 
 # $tg->addNode
 #  (
@@ -191,7 +300,7 @@ sub update_dynasty_display {
 #     text => ['some more','text']
 #  );
 
- #$tg -> addDirectArrow( from => 'Child2', to => 'King',);
+#$tg -> addDirectArrow( from => 'Child2', to => 'King',);
 
  $tg->arrowBind
   (
@@ -233,28 +342,43 @@ sub init_dynasty {
 
    my $king = new Character();
    my $queen = new Character();
+   my $child = new Character();
 
    $king->name('King');
    $king->age($Start_King_Age);
+   $king->sex('male');
    $king->married($queen);
+   $king->generation(1);
+
    $queen->name('Queen');
    $queen->age($Start_Queen_Age);
+   $queen->sex('female');
    $queen->married($king);
+   $queen->generation(1);
+
+   $child->name('First Child');
+   $child->age($Start_First_Child_Age);
+   $child->generation(2);
+   $child->father($king);
 
    # now add them to the dynasty 'roll'
-   add_character_to_dynasty($which, $king);
-   add_character_to_dynasty($which, $queen);
+   &add_character_to_dynasty($which, $king);
+   &add_character_to_dynasty($which, $queen);
+   &add_character_to_dynasty($which, $child);
 
 }
 
 sub add_character_to_dynasty {
    my ($which, $char) = @_;
-   push @{$DYNASTY{$which}->{'characters'}}, $char; 
-}
+   my $rank = $char->generation();
 
-sub get_dynasty_character_list {
-   my ($which) = @_;
-   return @{$DYNASTY{$which}->{'characters'}};
+   unless (exists $DYNASTY{$which}->{'characters'}->{$rank})
+   {
+     $DYNASTY{$which}->{'characters'}->{$rank} = [];
+   }
+
+   push @{$DYNASTY{$which}->{'characters'}->{$rank}}, $char; 
+
 }
 
 sub init_gui {
@@ -308,17 +432,26 @@ sub init_gui {
                                                    -command => sub { &next_turn() },
                                                  )->pack( side => 'left', fill => 'both', expand => 0);
 
-  $WIDGET{'year_label'} = $rightTopFrame->Label( -text => $Start_Year,
-                                                  # -fg => ,
-                                                  # -fg => ,
+  my $thirteenImage = $rightTopFrame->Photo( -format => 'jpeg', -file => "13.jpg");
+  my $oneImage = $rightTopFrame->Photo( -format => 'jpeg', -file => "1.jpg");
+  my $twoImage = $rightTopFrame->Photo( -format => 'jpeg', -file => "2.jpg");
+  $WIDGET{'year_photo'} = $rightTopFrame->Label( -image => $thirteenImage, 
                                                  )->pack( side => 'left', expand => 0);
+  $WIDGET{'year_photo1'} = $rightTopFrame->Label( -image => $oneImage, 
+                                                 )->pack( side => 'left', expand => 0);
+  $WIDGET{'year_photo2'} = $rightTopFrame->Label( -image => $twoImage, 
+                                                 )->pack( side => 'left', expand => 0);
+
+  $WIDGET{'year_label'} = $rightTopFrame->Label( -text => $Start_Year,
+                                                )->pack( side => 'left', expand => 0);
 
   # add in buttons
   $WIDGET{'notebook'} = $bottomFrame->NoteBook(
-                                                -bg => $baseColor,
+                                                -bg => $BgColor{'Events'},
                                               )->pack(fill => 'both', expand => 1);
   $WIDGET{'notebook'}->add('Events',  -label => 'Events',
                             -createcmd => sub { &make_events_frame($_[0])},
+                            -raisecmd => sub { &update_events_display($_[0]); }, 
                           );
   my $image = $WIDGET{'notebook'}->Photo(-data => &italy_image, -format => 'xpm');
   $WIDGET{'notebook'}->add('Italy',  -image => $image,
@@ -336,7 +469,7 @@ sub init_gui {
                             -raisecmd => sub { &update_dynasty_display('Spain')},
                           );
   $image = $WIDGET{'notebook'}->Photo(-data => &germany_image, -format => 'xpm');
-  $WIDGET{'notebook'}->add('Germany',  -image => $image,
+  $WIDGET{'notebook'}->add('Germany',  -image => $image, 
                             -createcmd => sub { &make_country_frame($_[0], 'Germany')},
                             -raisecmd => sub { &update_dynasty_display('Germany')},
                           );
@@ -353,14 +486,14 @@ sub make_events_frame {
 
   $WIDGET{'events_text'} = $frame->Scrolled ('Text',  
                                        -scrollbars => 'ose',
-                                     )->pack( );
+                                     )->pack( fill => 'both', expand => 1 );
 
   $WIDGET{'events_text'}->configure (
                                 font => $Font{$DISPLAY_SIZE},
                                 wrap => 'none',
                                 state => 'disabled',
-                                fg => $textFgColor,
-                                bg => $textBgColor, 
+                                fg => $FgColor{'Events'},
+                                bg => $BgColor{'Events'}, 
                                                      ); 
 
 
@@ -374,9 +507,9 @@ sub make_country_frame {
    $WIDGET{$frame_name} = $frame->Scrolled('TreeGraph',
                                            -scrollbars => 'se', 
                                              )->pack(fill => 'both', expand => 1); 
-   $WIDGET{$frame_name}->configure( fg => $textFgColor,
-                                    bg => $textBgColor,); 
 
+   $WIDGET{$frame_name}->configure( fg => $FgColor{$country},
+                                    bg => $BgColor{$country},);
 
 }
 
